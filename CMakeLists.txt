@@ -261,6 +261,7 @@ add_library(
         csrc/env.cpp
         csrc/hkdf.cpp
         csrc/hmac.cpp
+        csrc/kem_gen.cpp
         csrc/keyutils.cpp
         csrc/java_evp_keys.cpp
         csrc/libcrypto_rng.cpp

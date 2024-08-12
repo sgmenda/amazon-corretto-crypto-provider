@@ -152,6 +152,7 @@ public final class AmazonCorrettoCryptoProvider extends java.security.Provider {
     }
 
     addSignatures();
+    addKEMs();
   }
 
   private void addSignatures() {
@@ -172,6 +173,13 @@ public final class AmazonCorrettoCryptoProvider extends java.security.Provider {
 
     addService("Signature", "RSASSA-PSS", "EvpSignature$RSASSA_PSS");
     addService("Signature", "NONEwithECDSA", "EvpSignatureRaw$NONEwithECDSA");
+  }
+
+  private void addKEMs() {
+    // Support EVP_KEM as a Cipher
+    addService("KeyPairGenerator", "KEM", "KemGen");
+    // FIXME(sanketh): add cipher implementation
+    // addService("Cipher", "KEM", "KemCipher");
   }
 
   private ACCPService addService(
