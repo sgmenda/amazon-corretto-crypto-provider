@@ -52,6 +52,7 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_HpkeCipher_hpkeC
         const EVP_HPKE_KDF* kdf = EVP_HPKE_KDF_find_by_id(kdfId);
         const EVP_HPKE_AEAD* aead = EVP_HPKE_AEAD_find_by_id(aeadId);
         const size_t aead_overhead = EVP_AEAD_max_overhead(EVP_HPKE_AEAD_aead(aead));
+        const size_t kem_overhead = EVP_HPKE_KEM_enc_len(kem);
 
         if (kemId != EVP_HPKE_KEM_id(EVP_HPKE_KEY_kem(key))) {
             throw_java_ex(EX_RUNTIME_CRYPTO, "KEM in the key does not match the param");
@@ -69,26 +70,24 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_HpkeCipher_hpkeC
             CHECK_OPENSSL(EVP_HPKE_KEY_public_key(key, public_key_r.data(), &public_key_r_len, public_key_r.size()));
 
             // The input is the plaintext message
-            java_buffer msgBuf = java_buffer::from_array(env, input, inputOffset, input_length);
+            java_buffer inBuf = java_buffer::from_array(env, input, inputOffset, input_length);
 
             // We write the enc and the ciphertext to the output buffer
-            const size_t encBufLen = EVP_HPKE_KEM_enc_len(kem);
+            const size_t encBufLen = kem_overhead;
             const size_t ctBufLen = input_length + aead_overhead;
             const size_t outBufLen = encBufLen + ctBufLen;
-            java_buffer encBuf = java_buffer::from_array(env, output, outputOffset, encBufLen);
-            java_buffer ctBuf = java_buffer::from_array(env, output, outputOffset + encBufLen, ctBufLen);
+            java_buffer outBuf = java_buffer::from_array(env, output, outputOffset, outBufLen);
             size_t enc_len = 0;
             size_t ct_len = 0;
 
             {
-                jni_borrow msg(env, msgBuf, "input msg");
+                jni_borrow in(env, inBuf, "input plaintext");
                 jni_borrow aad(env, aadBuf, "aad");
-                jni_borrow enc(env, encBuf, "output enc");
-                jni_borrow ct(env, ctBuf, "output ciphertext");
+                jni_borrow out(env, outBuf, "output enc and ciphertext");
 
-                CHECK_OPENSSL(EVP_HPKE_seal(enc.data(), &enc_len, enc.len(), ct.data(), &ct_len, ct.len(), kem, kdf,
-                    aead, public_key_r.data(), public_key_r_len, info.data(), info.size(), msg.data(), msg.len(),
-                    aad.data(), aad.len()));
+                CHECK_OPENSSL(EVP_HPKE_seal(out.data(), &enc_len, encBufLen, out.data() + encBufLen, &ct_len, ctBufLen,
+                    kem, kdf, aead, public_key_r.data(), public_key_r_len, info.data(), info.size(), in.data(),
+                    in.len(), aad.data(), aad.len()));
                 if (enc_len != encBufLen) {
                     throw_java_ex(EX_RUNTIME_CRYPTO, "Unexpected error, enc buffer length is wrong!");
                 }
@@ -99,25 +98,23 @@ JNIEXPORT jint JNICALL Java_com_amazon_corretto_crypto_provider_HpkeCipher_hpkeC
             }
         } else if ((javaCipherMode == 2 /* Decrypt */) || (javaCipherMode == 4 /* Unwrap */)) {
             // The input is the enc and the ciphertext
-            const size_t encBufLen = EVP_HPKE_KEM_enc_len(kem);
+            const size_t encBufLen = kem_overhead;
             if (input_length < (encBufLen + aead_overhead)) {
                 throw_java_ex(EX_RUNTIME_CRYPTO, "input too short to unwrap with HPKE");
             }
             const size_t ctBufLen = input_length - encBufLen;
-            java_buffer encBuf = java_buffer::from_array(env, input, inputOffset, encBufLen);
-            java_buffer ctBuf = java_buffer::from_array(env, input, inputOffset + encBufLen, ctBufLen);
+            java_buffer inBuf = java_buffer::from_array(env, input, inputOffset, input_length);
 
             // We write the plaintext message to the output buffer
-            java_buffer msgBuf = java_buffer::from_array(env, output, outputOffset);
+            java_buffer outBuf = java_buffer::from_array(env, output, outputOffset);
             size_t msg_len = 0;
             {
-                jni_borrow enc(env, encBuf, "input enc");
-                jni_borrow ct(env, ctBuf, "input ciphertext");
+                jni_borrow in(env, inBuf, "input enc and ciphertext");
                 jni_borrow aad(env, aadBuf, "aad");
-                jni_borrow msg(env, msgBuf, "output msg");
+                jni_borrow out(env, outBuf, "output plaintext");
 
-                CHECK_OPENSSL(EVP_HPKE_open(msg.data(), &msg_len, msg.len(), key, kdf, aead, enc.data(), enc.len(),
-                    info.data(), info.size(), ct.data(), ct.len(), aad.data(), aad.len()))
+                CHECK_OPENSSL(EVP_HPKE_open(out.data(), &msg_len, out.len(), key, kdf, aead, in.data(), encBufLen,
+                    info.data(), info.size(), in.data() + encBufLen, ctBufLen, aad.data(), aad.len()))
                 result = msg_len;
             }
         } else {
